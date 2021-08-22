@@ -129,6 +129,28 @@ def save_subs_to_store(subs, subs_id, item, language='en'):
     filename = subs_filename(subs_id, language)
     return save_to_store(filedata, filename, 'application/json', item.location)
 
+def list_of_youtube_transcript_languages(youtube_id, settings):
+    """
+    Get a list of available YouTube transcript languages for a given YouTube video ID
+    """
+    utf8_parser = etree.XMLParser(encoding='utf-8')
+    return_list = []
+    youtube_text_api = copy.deepcopy(settings.YOUTUBE['TEXT_API'])
+    youtube_text_api['params']['v'] = youtube_id
+    transcripts_param = {'type': 'list', 'v': youtube_text_api['params']['v']}
+    # get list of transcripts of specific video
+    # url-form
+    # http://video.google.com/timedtext?type=list&v={VideoId}
+    youtube_response = requests.get('http://' + youtube_text_api['url'], params=transcripts_param)
+    if youtube_response.status_code == 200 and youtube_response.text:
+        youtube_data = etree.fromstring(youtube_response.text.encode('utf-8'), parser=utf8_parser)
+        # iterate all transcripts information from youtube server
+        for element in youtube_data:
+            # search specific language code such as 'en' in transcripts info list
+            if element.tag == 'track' and element.get('lang_code', '') != "":
+                return_list.append(element.get('lang_code'))
+
+    return return_list
 
 def youtube_video_transcript_name(youtube_text_api):
     """
@@ -153,7 +175,7 @@ def youtube_video_transcript_name(youtube_text_api):
     return None
 
 
-def get_transcripts_from_youtube(youtube_id, settings, i18n, youtube_transcript_name=''):  # lint-amnesty, pylint: disable=redefined-outer-name
+def get_transcripts_from_youtube(youtube_id, settings, i18n, youtube_transcript_name='', lang=u'en'):
     """
     Gets transcripts from youtube for youtube_id.
 
@@ -168,6 +190,7 @@ def get_transcripts_from_youtube(youtube_id, settings, i18n, youtube_transcript_
 
     youtube_text_api = copy.deepcopy(settings.YOUTUBE['TEXT_API'])
     youtube_text_api['params']['v'] = youtube_id
+    youtube_text_api['params']['lang'] = lang
     # if the transcript name is not empty on youtube server we have to pass
     # name param in url in order to get transcript
     # example http://video.google.com/timedtext?lang=en&v={VideoId}&name={transcript_name}
@@ -201,13 +224,14 @@ def get_transcripts_from_youtube(youtube_id, settings, i18n, youtube_transcript_
     return {'start': sub_starts, 'end': sub_ends, 'text': sub_texts}
 
 
-def download_youtube_subs(youtube_id, video_descriptor, settings):  # lint-amnesty, pylint: disable=redefined-outer-name
+def download_youtube_subs(youtube_id, video_descriptor, settings, lang):
     """
     Download transcripts from Youtube.
 
     Args:
         youtube_id: str, actual youtube_id of the video.
         video_descriptor: video descriptor instance.
+        lang: a string of transcript lang
 
     We save transcripts for 1.0 speed, as for other speed conversion is done on front-end.
 
@@ -220,7 +244,7 @@ def download_youtube_subs(youtube_id, video_descriptor, settings):  # lint-amnes
     i18n = video_descriptor.runtime.service(video_descriptor, "i18n")
     _ = i18n.ugettext
 
-    subs = get_transcripts_from_youtube(youtube_id, settings, i18n)
+    subs = get_transcripts_from_youtube(youtube_id, settings, i18n, lang=lang)
     return json.dumps(subs, indent=2)
 
 

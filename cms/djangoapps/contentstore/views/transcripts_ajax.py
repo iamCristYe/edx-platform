@@ -37,6 +37,7 @@ from xmodule.video_module.transcripts_utils import (
     TranscriptsGenerationException,
     TranscriptsRequestValidationException,
     clean_video_id,
+    list_of_youtube_transcript_languages,
     download_youtube_subs,
     get_transcript,
     get_transcript_for_video,
@@ -346,7 +347,10 @@ def check_transcripts(request):  # lint-amnesty, pylint: disable=too-many-statem
             youtube_transcript_name = youtube_video_transcript_name(youtube_text_api)
             if youtube_transcript_name:
                 youtube_text_api['params']['name'] = youtube_transcript_name
-            youtube_response = requests.get('http://' + youtube_text_api['url'], params=youtube_text_api['params'])
+
+            # get list of transcripts of specific video, so that transcript other than in English will also be there
+            transcripts_param = {'type': 'list', 'v': youtube_text_api['params']['v']}
+            youtube_response = requests.get('http://' + youtube_text_api['url'], params=transcripts_param)
 
             if youtube_response.status_code == 200 and youtube_response.text:
                 transcripts_presence['youtube_server'] = True
@@ -620,18 +624,35 @@ def replace_transcripts(request):
     elif not youtube_id:
         response = error_response({}, _('YouTube ID is required.'))
     else:
-        # 1. Download transcript from YouTube.
-        try:
-            video = validated_data['video']
-            transcript_content = download_youtube_subs(youtube_id, video, settings)
-        except GetTranscriptsFromYouTubeException as e:
-            return error_response({}, str(e))
+        success = False
+        # get a list of available YouTube transcript languages, then get transcript for each lang
+        for lang in list_of_youtube_transcript_languages(youtube_id, settings):
+            # 1. Download transcript from YouTube.
+            try:
+                video = validated_data['video']
+                transcript_content = download_youtube_subs(youtube_id, video, settings, lang)
+            except GetTranscriptsFromYouTubeException as e:
+                return error_response({}, str(e))
 
-        # 2. Link a video to video component if its not already linked to one.
-        edx_video_id = link_video_to_component(video, request.user)
+            # 2. Link a video to video component if its not already linked to one.
+            edx_video_id = link_video_to_component(video, request.user)
 
-        # 3. Upload YT transcript to DS for the linked video ID.
-        success = save_video_transcript(edx_video_id, Transcript.SJSON, transcript_content, language_code='en')
+            # mapping for YouTube -> edX
+            if lang == 'en-US':
+                lang = 'en'
+
+            if lang == 'zh-Hant':
+                lang = 'zh_HANT'
+
+            if lang == 'zh-Hans':
+                lang = 'zh_HANS'
+
+            if lang == 'es-419':
+                lang = 'es'
+
+            # 3. Upload YT transcript to DS for the linked video ID.
+            success = save_video_transcript(edx_video_id, Transcript.SJSON, transcript_content, language_code=lang) or success
+
         if success:
             response = JsonResponse({'edx_video_id': edx_video_id, 'status': 'Success'}, status=200)
         else:
