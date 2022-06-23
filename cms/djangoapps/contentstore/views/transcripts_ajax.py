@@ -42,7 +42,7 @@ from xmodule.video_module.transcripts_utils import (
     get_transcript_for_video,
     get_transcript_from_val,
     get_transcripts_from_youtube,
-    youtube_video_transcript_name
+    get_transcript_link_from_youtube
 )
 
 __all__ = [
@@ -340,15 +340,7 @@ def check_transcripts(request):  # lint-amnesty, pylint: disable=too-many-statem
             except NotFoundError:
                 log.debug("Can't find transcripts in storage for youtube id: %s", youtube_id)
 
-            # youtube server
-            youtube_text_api = copy.deepcopy(settings.YOUTUBE['TEXT_API'])
-            youtube_text_api['params']['v'] = youtube_id
-            youtube_transcript_name = youtube_video_transcript_name(youtube_text_api)
-            if youtube_transcript_name:
-                youtube_text_api['params']['name'] = youtube_transcript_name
-            youtube_response = requests.get('http://' + youtube_text_api['url'], params=youtube_text_api['params'])
-
-            if youtube_response.status_code == 200 and youtube_response.text:
+            if get_transcript_link_from_youtube(youtube_id):
                 transcripts_presence['youtube_server'] = True
             #check youtube local and server transcripts for equality
             if transcripts_presence['youtube_server'] and transcripts_presence['youtube_local']:
